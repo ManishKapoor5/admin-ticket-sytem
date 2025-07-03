@@ -183,6 +183,7 @@ const ClientLogin = () => {
               <div className="client-login-footer">
                 <p>Need help? Contact our support team</p>
               </div>
+              <p>Don't have an account? <a href="/signup">Sign up</a></p>
             </div>
           </div>
         </div>

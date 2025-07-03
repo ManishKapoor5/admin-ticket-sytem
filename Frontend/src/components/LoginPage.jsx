@@ -1,6 +1,4 @@
-"use client"
-
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { Eye, EyeOff, Shield, Users, Ticket, AlertCircle } from "lucide-react"
 import { useAuth } from "../contexts/AuthContext"
 import { useToast } from "../contexts/ToastContext"
@@ -14,43 +12,86 @@ const LoginPage = () => {
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState("")
   const [demoUsers, setDemoUsers] = useState([])
+  const [isDemoLoading, setIsDemoLoading] = useState(false)
+  const [demoLoadAttempted, setDemoLoadAttempted] = useState(false)
+  
+  // Single ref to track if component is mounted
+  const mountedRef = useRef(true)
 
   const { login } = useAuth()
   const { showSuccess, showError } = useToast()
 
- useEffect(() => {
-  if (process.env.NODE_ENV === "development") {
-    loadDemoUsers()
-  }
-}, [])
+  useEffect(() => {
+    mountedRef.current = true
+    
+    // Only attempt to load demo users once when component mounts
+    const isDevelopment = process.env.NODE_ENV === "development" || 
+                         process.env.REACT_APP_ENV === "development" ||
+                         window.location.hostname === "localhost"
+    
+    if (isDevelopment && !demoLoadAttempted) {
+      // Add delay to prevent immediate API call on mount
+      const timer = setTimeout(() => {
+        if (mountedRef.current) {
+          loadDemoUsers()
+        }
+      }, 300) // 300ms delay
+      
+      return () => clearTimeout(timer)
+    }
 
+    return () => {
+      mountedRef.current = false
+    }
+  }, []) // Empty dependency array - only run once on mount
 
   const loadDemoUsers = async () => {
-    try {
-      // Only get users from backend - no fallback demo users
-      const users = await adminAPI.getUsers()
-      const adminUsers = users
-        .filter((user) => user.role === "admin" || user.role === "developer" || user.role === "client_management")
-        .slice(0, 4) // Show max 4 demo users
+    // Prevent multiple calls
+    if (demoLoadAttempted || !mountedRef.current) {
+      return
+    }
 
-      setDemoUsers(
-        adminUsers.map((user) => ({
-          email: user.email,
-          name: user.username,
-          role: user.role,
-          level: user.level,
-        })),
-      )
+    setDemoLoadAttempted(true)
+    setIsDemoLoading(true)
+
+    try {
+      const users = await adminAPI.getUsers()
+      
+      if (mountedRef.current) {
+        const adminUsers = users
+          .filter((user) => user.role === "admin" || user.role === "developer" || user.role === "client_management")
+          .slice(0, 4)
+
+        setDemoUsers(
+          adminUsers.map((user) => ({
+            email: user.email,
+            name: user.username,
+            role: user.role,
+            level: user.level,
+          }))
+        )
+      }
     } catch (error) {
-      // Don't show any demo users if backend is not available
       console.log("Backend not available - no demo users will be shown")
-      setDemoUsers([])
+      
+      if (mountedRef.current) {
+        setDemoUsers([])
+        
+        // Don't retry on rate limit errors
+        if (error.response?.status === 429) {
+          console.warn("Rate limited - skipping demo users")
+        }
+      }
+    } finally {
+      if (mountedRef.current) {
+        setIsDemoLoading(false)
+      }
     }
   }
 
   const handleQuickFill = (user) => {
     setEmail(user.email)
-    setPassword("password") // Default password for demo
+    setPassword("password")
   }
 
   const handleSubmit = async (e) => {
@@ -58,16 +99,22 @@ const LoginPage = () => {
     setIsLoading(true)
     setError("")
 
-    const result = await login(email, password)
+    try {
+      const result = await login(email, password)
 
-    if (result.success) {
-      showSuccess("Login successful!")
-    } else {
-      setError(result.message)
-      showError(result.message)
+      if (result.success) {
+        showSuccess("Login successful!")
+      } else {
+        setError(result.message)
+        showError(result.message)
+      }
+    } catch (err) {
+      const errorMsg = "Login failed. Please try again."
+      setError(errorMsg)
+      showError(errorMsg)
+    } finally {
+      setIsLoading(false)
     }
-
-    setIsLoading(false)
   }
 
   const features = [
@@ -87,6 +134,13 @@ const LoginPage = () => {
       description: "Advanced ticket management with automatic escalation",
     },
   ]
+
+  const isDevelopment = process.env.NODE_ENV === "development" || 
+                       process.env.REACT_APP_ENV === "development" ||
+                       window.location.hostname === "localhost"
+  
+  // Simplified demo section visibility
+  const shouldShowDemoSection = isDevelopment && demoUsers.length > 0
 
   return (
     <div className="login-container">
@@ -156,7 +210,11 @@ const LoginPage = () => {
                       onChange={(e) => setPassword(e.target.value)}
                       required
                     />
-                    <button type="button" onClick={() => setShowPassword(!showPassword)} className="password-toggle">
+                    <button 
+                      type="button" 
+                      onClick={() => setShowPassword(!showPassword)} 
+                      className="password-toggle"
+                    >
                       {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                     </button>
                   </div>
@@ -167,7 +225,8 @@ const LoginPage = () => {
                 </button>
               </form>
 
-              {demoUsers.length > 0 && (
+              {/* Demo section - simplified visibility logic */}
+              {shouldShowDemoSection && (
                 <div className="login-footer">
                   <div className="demo-credentials">
                     <p>
@@ -175,7 +234,12 @@ const LoginPage = () => {
                     </p>
                     <div className="demo-buttons">
                       {demoUsers.map((user, index) => (
-                        <button key={index} type="button" className="demo-button" onClick={() => handleQuickFill(user)}>
+                        <button 
+                          key={index} 
+                          type="button" 
+                          className="demo-button" 
+                          onClick={() => handleQuickFill(user)}
+                        >
                           {user.name} ({user.role})
                         </button>
                       ))}
@@ -183,6 +247,15 @@ const LoginPage = () => {
                     <p style={{ fontSize: "0.75rem", color: "#64748b", marginTop: "0.5rem" }}>
                       Click to auto-fill credentials
                     </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Show loading only during initial load */}
+              {isDevelopment && isDemoLoading && (
+                <div className="login-footer">
+                  <div style={{ padding: "1rem", textAlign: "center", color: "#64748b" }}>
+                    Loading demo accounts...
                   </div>
                 </div>
               )}

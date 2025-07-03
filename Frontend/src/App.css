@@ -2,6 +2,10 @@
   margin: 0;
   padding: 0;
   box-sizing: border-box;
+  /* Prevent visual flickering */
+  -webkit-backface-visibility: hidden;
+  -webkit-transform: translate3d(0, 0, 0);
+  transform: translate3d(0, 0, 0);
 }
 
 body {
@@ -10,10 +14,58 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   background-color: #f8fafc;
+  /* Prevent layout shifts */
+  overflow-x: hidden;
 }
 
 .App {
   min-height: 100vh;
+  position: relative;
+  /* Prevent route transition flickering */
+  isolation: isolate;
+}
+
+/* Anti-flickering for all main components */
+.login-container,
+.dashboard-container, 
+.client-portal-container,
+.loading-container {
+  min-height: 100vh;
+  width: 100%;
+  /* Remove all transitions that might cause flickering */
+  transition: none !important;
+  transform: none !important;
+  opacity: 1 !important;
+  /* Ensure consistent rendering */
+  will-change: auto;
+}
+
+/* Loading state improvements */
+.loading-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background-color: #f8fafc;
+  /* Prevent flash of unstyled content */
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 1000;
+}
+
+.loading-spinner {
+  width: 40px;
+  height: 40px;
+  border: 4px solid #e2e8f0;
+  border-top: 4px solid #3b82f6;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
 }
 
 /* Common Button Styles */
@@ -28,7 +80,8 @@ body {
   font-weight: 500;
   border: 1px solid transparent;
   cursor: pointer;
-  transition: all 0.2s ease;
+  /* Reduce transition time to prevent flickering */
+  transition: background-color 0.15s ease, color 0.15s ease;
 }
 
 .action-button.primary {
@@ -178,7 +231,8 @@ body {
   border: 1px solid #d1d5db;
   border-radius: 0.5rem;
   font-size: 0.875rem;
-  transition: border-color 0.2s ease;
+  /* Faster transitions to prevent flickering */
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .form-group input:focus,
@@ -215,4 +269,44 @@ body {
 .empty-state p {
   font-size: 0.875rem;
   color: #94a3b8;
+}
+
+/* Prevent flash of unstyled content */
+.login-card,
+.dashboard-content,
+.client-portal-content {
+  opacity: 1;
+  transform: none;
+  transition: none !important;
+}
+
+/* Ensure consistent component sizing */
+.login-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background-color: #f8fafc;
+}
+
+/* Performance optimizations */
+img {
+  max-width: 100%;
+  height: auto;
+  /* Prevent image loading flicker */
+  display: block;
+}
+
+/* Reduce paint/layout thrashing */
+.App * {
+  will-change: auto;
+}
+
+/* Fix for any remaining visual flickering */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

@@ -1,7 +1,5 @@
-"use client"
-
-import { createContext, useContext, useState, useEffect } from "react"
-import { authAPI } from "../services/api"
+// AuthContext.js - Fixed version to prevent infinite re-renders
+import { createContext, useContext, useState, useEffect, useRef, useMemo } from "react"
 
 const AuthContext = createContext()
 
@@ -16,60 +14,170 @@ export const useAuth = () => {
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
+  
+  // Prevent double initialization in StrictMode
+  const initialized = useRef(false)
+  const mounted = useRef(true)
+  
+  // Debug: Track renders (remove this in production)
+  const renderCount = useRef(0)
+  renderCount.current += 1
+  console.log('AuthProvider render #', renderCount.current, { 
+    user: user?.email || 'null', 
+    loading, 
+    error: !!error 
+  })
 
+  // Check authentication status
   useEffect(() => {
-    const token = localStorage.getItem("token")
-    if (token) {
-      checkAuth()
-    } else {
-      setLoading(false)
+    let isCancelled = false
+    
+    const checkAuth = async () => {
+      // Prevent double initialization
+      if (initialized.current) return
+      initialized.current = true
+      
+      try {
+        const token = localStorage.getItem('token')
+        
+        if (!token) {
+          if (!isCancelled && mounted.current) {
+            setLoading(false)
+          }
+          return
+        }
+
+        const response = await fetch('/api/auth/verify', {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          }
+        })
+
+        if (!isCancelled && mounted.current) {
+          if (response.ok) {
+            const userData = await response.json()
+            setUser(userData)
+          } else {
+            // Invalid token
+            localStorage.removeItem('token')
+            setUser(null)
+          }
+          setLoading(false)
+        }
+      } catch (err) {
+        console.error('Auth check failed:', err)
+        if (!isCancelled && mounted.current) {
+          localStorage.removeItem('token')
+          setUser(null)
+          setError(err.message)
+          setLoading(false)
+        }
+      }
+    }
+
+    checkAuth()
+    
+    return () => {
+      isCancelled = true
+    }
+  }, []) // Empty dependency array - only run once!
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      mounted.current = false
     }
   }, [])
 
-  const checkAuth = async () => {
+  // Login function
+  const login = async (email, password) => {
     try {
-      const userData = await authAPI.getCurrentUser()
-      setUser(userData)
-    } catch (error) {
-      localStorage.removeItem("token")
-      setUser(null)
+      setLoading(true)
+      setError(null)
+      
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ email, password })
+      })
+
+      const data = await response.json()
+
+      if (response.ok) {
+        localStorage.setItem('token', data.token)
+        setUser(data.user)
+        return { success: true }
+      } else {
+        setError(data.message || 'Login failed')
+        return { success: false, error: data.message }
+      }
+    } catch (err) {
+      setError(err.message)
+      return { success: false, error: err.message }
     } finally {
       setLoading(false)
     }
   }
 
-  const login = async (email, password) => {
+  // Register function
+  const register = async (userData) => {
     try {
-      const response = await authAPI.login(email, password)
-      localStorage.setItem("token", response.token)
-      setUser(response.user)
-      return { success: true }
-    } catch (error) {
-      return {
-        success: false,
-        message: error.response?.data?.message || "Login failed",
+      setLoading(true)
+      setError(null)
+      
+      const response = await fetch('/api/auth/register', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(userData)
+      })
+
+      const data = await response.json()
+
+      if (response.ok) {
+        localStorage.setItem('token', data.token)
+        setUser(data.user)
+        return { success: true }
+      } else {
+        setError(data.message || 'Registration failed')
+        return { success: false, error: data.message }
       }
+    } catch (err) {
+      setError(err.message)
+      return { success: false, error: err.message }
+    } finally {
+      setLoading(false)
     }
   }
 
+  // Logout function
   const logout = () => {
-    // Clear token from localStorage
-    localStorage.removeItem("token")
-
-    // Clear user state
+    localStorage.removeItem('token')
     setUser(null)
-
-    // Force redirect to login page
-    window.location.href = "/login"
+    setError(null)
+    // Don't set loading to true - user is immediately logged out
   }
 
-  const value = {
+  // Memoize the context value to prevent unnecessary re-renders
+  const value = useMemo(() => ({
     user,
-    login,
-    logout,
     loading,
-    checkAuth,
-  }
+    error,
+    login,
+    register,
+    logout,
+    isAuthenticated: !!user
+  }), [user, loading, error]) // Only re-create when these change
 
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
+  return (
+    <AuthContext.Provider value={value}>
+      {children}
+    </AuthContext.Provider>
+  )
 }
